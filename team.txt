@@ -1,0 +1,614 @@
+# =========================================================
+# Microsoft Teams Full Management & Diagnostic Utility
+# =========================================================
+# Features:
+# 1. Show Installed Teams Versions
+# 2. Remove Classic Teams Only
+# 3. Remove ALL Teams Versions
+# 4. Deep Cleanup (Files + Registry)
+# 5. Install Latest New Teams
+# 6. Full Cleanup + Install New Teams
+# 7. Remove ALL Logged-in Teams Accounts
+# 8. Run Teams Health Check
+# 9. Exit
+# =========================================================
+
+# Run PowerShell as Administrator
+
+# =========================================================
+# MENU
+# =========================================================
+
+function Show-Menu {
+
+    Clear-Host
+
+    Write-Host "=================================================" -ForegroundColor Cyan
+    Write-Host "     Microsoft Teams Management Utility"
+    Write-Host "=================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    Write-Host "1. Show Installed Teams Versions"
+    Write-Host "2. Remove Classic Teams Only"
+    Write-Host "3. Remove ALL Teams Versions"
+    Write-Host "4. Deep Cleanup (Files + Registry)"
+    Write-Host "5. Install Latest New Teams"
+    Write-Host "6. Full Cleanup + Install New Teams"
+    Write-Host "7. Remove ALL Logged-in Teams Accounts"
+    Write-Host "8. Run Teams Health Check"
+    Write-Host "9. Exit"
+
+    Write-Host ""
+}
+
+# =========================================================
+# STOP TEAMS PROCESSES
+# =========================================================
+
+function Stop-TeamsProcesses {
+
+    Write-Host "`nStopping Teams processes..." -ForegroundColor Yellow
+
+    $Processes = @(
+        "Teams",
+        "ms-teams",
+        "Update"
+    )
+
+    foreach ($proc in $Processes) {
+
+        Get-Process $proc -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+
+    Start-Sleep 2
+}
+
+# =========================================================
+# SHOW INSTALLED TEAMS
+# =========================================================
+
+function Get-TeamsInfo {
+
+    Write-Host "`nChecking installed Teams versions..." -ForegroundColor Yellow
+
+    $Classic = Get-WmiObject Win32_Product |
+    Where-Object {
+        $_.Name -like "*Teams*"
+    }
+
+    $NewTeams = Get-AppxPackage *MSTeams* -AllUsers
+
+    if ($Classic) {
+
+        Write-Host "`nClassic Teams Detected:" -ForegroundColor Green
+
+        $Classic |
+        Select-Object Name, Version
+    }
+    else {
+
+        Write-Host "`nClassic Teams not found." -ForegroundColor Red
+    }
+
+    if ($NewTeams) {
+
+        Write-Host "`nNew Teams Detected:" -ForegroundColor Green
+
+        $NewTeams |
+        Select-Object Name, Version
+    }
+    else {
+
+        Write-Host "`nNew Teams not found." -ForegroundColor Red
+    }
+
+    Pause
+}
+
+# =========================================================
+# REMOVE CLASSIC TEAMS
+# =========================================================
+
+function Remove-ClassicTeams {
+
+    Stop-TeamsProcesses
+
+    Write-Host "`nRemoving Classic Teams..." -ForegroundColor Yellow
+
+    $Paths = @(
+
+        "$env:LOCALAPPDATA\Microsoft\Teams\Update.exe",
+        "$env:LOCALAPPDATA\Microsoft\TeamsCurrent\Update.exe"
+    )
+
+    foreach ($path in $Paths) {
+
+        if (Test-Path $path) {
+
+            Start-Process `
+                -FilePath $path `
+                -ArgumentList "--uninstall /s" `
+                -Wait
+        }
+    }
+
+    Get-WmiObject Win32_Product |
+    Where-Object {
+        $_.Name -like "*Teams Machine-Wide Installer*"
+    } |
+    ForEach-Object {
+
+        $_.Uninstall() | Out-Null
+    }
+
+    Write-Host "`nClassic Teams removed successfully." -ForegroundColor Green
+
+    Pause
+}
+
+# =========================================================
+# REMOVE ALL TEAMS
+# =========================================================
+
+function Remove-AllTeams {
+
+    Stop-TeamsProcesses
+
+    Write-Host "`nRemoving ALL Teams versions..." -ForegroundColor Yellow
+
+    Remove-ClassicTeams
+
+    Get-AppxPackage *MSTeams* -AllUsers |
+    Remove-AppxPackage -ErrorAction SilentlyContinue
+
+    Write-Host "`nAll Teams versions removed." -ForegroundColor Green
+
+    Pause
+}
+
+# =========================================================
+# DEEP CLEANUP
+# =========================================================
+
+function Deep-Cleanup {
+
+    Write-Host "`nPerforming deep cleanup..." -ForegroundColor Yellow
+
+    $Folders = @(
+
+        "$env:APPDATA\Microsoft\Teams",
+        "$env:LOCALAPPDATA\Microsoft\Teams",
+        "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe",
+        "$env:LOCALAPPDATA\SquirrelTemp",
+        "$env:PROGRAMDATA\Teams",
+        "$env:PROGRAMFILES\Teams Installer",
+        "$env:PROGRAMFILES(X86)\Teams Installer"
+    )
+
+    foreach ($folder in $Folders) {
+
+        if (Test-Path $folder) {
+
+            Remove-Item `
+                $folder `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+
+            Write-Host "Deleted Folder: $folder"
+        }
+    }
+
+    $RegistryPaths = @(
+
+        "HKCU:\Software\Microsoft\Office\Teams",
+        "HKCU:\Software\Microsoft\Teams",
+        "HKCU:\Software\Microsoft\IdentityCRL",
+        "HKCU:\Software\Microsoft\Office\16.0\Common\Identity",
+
+        "HKLM:\SOFTWARE\Microsoft\Teams",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Teams"
+    )
+
+    foreach ($reg in $RegistryPaths) {
+
+        if (Test-Path $reg) {
+
+            Remove-Item `
+                $reg `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+
+            Write-Host "Removed Registry: $reg"
+        }
+    }
+
+    Write-Host "`nDeep cleanup completed." -ForegroundColor Green
+
+    Pause
+}
+
+# =========================================================
+# INSTALL NEW TEAMS
+# =========================================================
+
+function Install-NewTeams {
+
+    Write-Host "`nInstalling latest New Teams..." -ForegroundColor Yellow
+
+    winget install Microsoft.Teams `
+        --accept-source-agreements `
+        --accept-package-agreements
+
+    Write-Host "`nNew Teams installed successfully." -ForegroundColor Green
+
+    Pause
+}
+
+# =========================================================
+# REMOVE ALL LOGGED-IN ACCOUNTS
+# =========================================================
+
+function Clear-TeamsAccounts {
+
+    Stop-TeamsProcesses
+
+    Write-Host "`nRemoving all Teams logged-in accounts..." -ForegroundColor Yellow
+
+    $AccountFolders = @(
+
+        "$env:APPDATA\Microsoft\Teams",
+        "$env:LOCALAPPDATA\Microsoft\Teams",
+
+        "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache",
+        "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalState",
+        "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\RoamingState"
+    )
+
+    foreach ($folder in $AccountFolders) {
+
+        if (Test-Path $folder) {
+
+            Remove-Item `
+                "$folder\*" `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+
+            Write-Host "Cleared: $folder"
+        }
+    }
+
+    Write-Host "`nCleaning Windows Credentials..." -ForegroundColor Yellow
+
+    cmdkey /list |
+    Select-String "Teams|MicrosoftOffice|ADAL|msteams|aad|login" |
+    ForEach-Object {
+
+        $target = ($_ -split ":")[1].Trim()
+
+        if ($target) {
+
+            cmdkey /delete:$target | Out-Null
+
+            Write-Host "Deleted Credential: $target"
+        }
+    }
+
+    $RegPaths = @(
+
+        "HKCU:\Software\Microsoft\Office\Teams",
+        "HKCU:\Software\Microsoft\IdentityCRL",
+        "HKCU:\Software\Microsoft\Office\16.0\Common\Identity"
+    )
+
+    foreach ($reg in $RegPaths) {
+
+        if (Test-Path $reg) {
+
+            Remove-Item `
+                $reg `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+
+            Write-Host "Removed Registry: $reg"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "=================================================" -ForegroundColor Green
+    Write-Host "All Teams accounts removed successfully."
+    Write-Host "=================================================" -ForegroundColor Green
+
+    Pause
+}
+
+# =========================================================
+# TEAMS HEALTH CHECK
+# =========================================================
+
+function Teams-HealthCheck {
+
+    Clear-Host
+
+    Write-Host "=================================================" -ForegroundColor Cyan
+    Write-Host "           Microsoft Teams Health Check"
+    Write-Host "=================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    function Add-Result {
+
+        param(
+            [string]$Issue,
+            [bool]$Exists
+        )
+
+        $Status = if ($Exists) { "YES" } else { "NO" }
+
+        $Color = if ($Exists) { "Red" } else { "Green" }
+
+        Write-Host ("{0,-45} {1}" -f $Issue, $Status) -ForegroundColor $Color
+    }
+
+    # Classic Teams
+    $ClassicTeams = Get-WmiObject Win32_Product |
+    Where-Object {
+        $_.Name -like "*Teams*"
+    }
+
+    Add-Result `
+        "Classic Teams Installed" `
+        ($ClassicTeams -ne $null)
+
+    # New Teams
+    $NewTeams = Get-AppxPackage *MSTeams* -AllUsers
+
+    Add-Result `
+        "New Teams Installed" `
+        ($NewTeams -ne $null)
+
+    # Running Process
+    $Running = Get-Process Teams,ms-teams -ErrorAction SilentlyContinue
+
+    Add-Result `
+        "Teams Process Running" `
+        ($Running -ne $null)
+
+    # Cache Size
+    $CachePath = "$env:APPDATA\Microsoft\Teams"
+
+    $LargeCache = $false
+
+    if (Test-Path $CachePath) {
+
+        $Size = (
+            Get-ChildItem `
+                $CachePath `
+                -Recurse `
+                -ErrorAction SilentlyContinue |
+            Measure-Object Length -Sum
+        ).Sum
+
+        if ($Size -gt 500MB) {
+
+            $LargeCache = $true
+        }
+    }
+
+    Add-Result `
+        "Large Teams Cache (>500MB)" `
+        $LargeCache
+
+    # WebView2
+    $WebView = Get-ItemProperty `
+        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\*" `
+        -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.name -match "WebView2"
+    }
+
+    Add-Result `
+        "WebView2 Missing" `
+        ($WebView -eq $null)
+
+    # Credentials
+    $Creds = cmdkey /list |
+    Select-String "Teams|ADAL|msteams|aad"
+
+    Add-Result `
+        "Old Teams Credentials Found" `
+        ($Creds -ne $null)
+
+    # Identity Cache
+    $Identity = Test-Path `
+        "HKCU:\Software\Microsoft\IdentityCRL"
+
+    Add-Result `
+        "Identity Cache Exists" `
+        $Identity
+
+    # Update.exe
+    $UpdateExe = `
+        "$env:LOCALAPPDATA\Microsoft\Teams\Update.exe"
+
+    $BrokenUpdate = -not (Test-Path $UpdateExe)
+
+    Add-Result `
+        "Update.exe Missing" `
+        $BrokenUpdate
+
+    # Connectivity
+    try {
+
+        $Connection = Test-NetConnection `
+            teams.microsoft.com `
+            -Port 443 `
+            -WarningAction SilentlyContinue
+
+        Add-Result `
+            "Cannot Reach Teams Servers" `
+            (-not $Connection.TcpTestSucceeded)
+    }
+    catch {
+
+        Add-Result `
+            "Cannot Reach Teams Servers" `
+            $true
+    }
+
+    # Notifications
+    $Notif = Get-ItemProperty `
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications" `
+        -ErrorAction SilentlyContinue
+
+    $NotifDisabled = $false
+
+    if ($Notif.ToastEnabled -eq 0) {
+
+        $NotifDisabled = $true
+    }
+
+    Add-Result `
+        "Windows Notifications Disabled" `
+        $NotifDisabled
+
+    # Multi Account
+    $AccountsFolder = `
+        "$env:APPDATA\Microsoft\Teams"
+
+    $MultiAccount = $false
+
+    if (Test-Path $AccountsFolder) {
+
+        $Files = Get-ChildItem `
+            $AccountsFolder `
+            -Recurse `
+            -ErrorAction SilentlyContinue
+
+        if ($Files.Count -gt 5000) {
+
+            $MultiAccount = $true
+        }
+    }
+
+    Add-Result `
+        "Possible Multi-Account Cache Issue" `
+        $MultiAccount
+
+    # Winget
+    $Winget = Get-Command winget -ErrorAction SilentlyContinue
+
+    Add-Result `
+        "Winget Missing" `
+        ($Winget -eq $null)
+
+    # Windows Update
+    $WU = Get-Service wuauserv -ErrorAction SilentlyContinue
+
+    $WUStopped = $false
+
+    if ($WU.Status -ne "Running") {
+
+        $WUStopped = $true
+    }
+
+    Add-Result `
+        "Windows Update Service Stopped" `
+        $WUStopped
+
+    Write-Host ""
+    Write-Host "=================================================" -ForegroundColor Cyan
+    Write-Host "Health Check Completed"
+    Write-Host "YES = Problem Exists"
+    Write-Host "NO  = No Problem"
+    Write-Host "=================================================" -ForegroundColor Cyan
+
+    Pause
+}
+
+# =========================================================
+# FULL AUTOMATION
+# =========================================================
+
+function Full-Automation {
+
+    Remove-AllTeams
+    Deep-Cleanup
+    Install-NewTeams
+
+    Write-Host "`nFull cleanup and installation completed." -ForegroundColor Cyan
+
+    Pause
+}
+
+# =========================================================
+# MAIN LOOP
+# =========================================================
+
+do {
+
+    Show-Menu
+
+    $Choice = Read-Host "Select an option"
+
+    switch ($Choice) {
+
+        "1" {
+
+            Get-TeamsInfo
+        }
+
+        "2" {
+
+            Remove-ClassicTeams
+        }
+
+        "3" {
+
+            Remove-AllTeams
+        }
+
+        "4" {
+
+            Deep-Cleanup
+        }
+
+        "5" {
+
+            Install-NewTeams
+        }
+
+        "6" {
+
+            Full-Automation
+        }
+
+        "7" {
+
+            Clear-TeamsAccounts
+        }
+
+        "8" {
+
+            Teams-HealthCheck
+        }
+
+        "9" {
+
+            Write-Host "`nExiting..." -ForegroundColor Cyan
+
+            break
+        }
+
+        default {
+
+            Write-Host "`nInvalid option." -ForegroundColor Red
+
+            Pause
+        }
+    }
+
+} while ($Choice -ne "9")
